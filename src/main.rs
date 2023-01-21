@@ -69,29 +69,38 @@ fn open_first_mouse<'a>(
     }
     mouse.ok_or(OpenFirstMouseError::NotFound)
 }
+#[derive(Debug, thiserror::Error)]
+enum OpenFirstMouseError {
+    #[error("No mouse found")]
+    NotFound,
+    #[error("Error opening the found mouse: {0}")]
+    OpenMouse(#[from] hidapi::HidError),
+    #[error("Error wrapping the mouse device: {0}")]
+    WrapMouse(#[from] crate::mouse::GetMouseError),
+}
 
 fn process_udev_event<'a>(
     event: &Event,
     mice: impl Iterator<Item = (&'a String, &'a MouseProfile)>,
-) -> Result<bool, ()> {
+) -> Result<bool, UdevEventError> {
     if event.event_type() == EventType::Bind {
         let device = event.device();
         let vendor_id = device
             .attribute_value("idVendor")
-            .ok_or(())?
+            .ok_or(UdevEventError::MissingVendor)?
             .to_str()
-            .ok_or(())?;
+            .ok_or(UdevEventError::InvalidVendor)?;
         let vendor_id = <[u8; 2]>::from_hex(vendor_id)
             .map(u16::from_be_bytes)
-            .map_err(|_| ())?;
+            .map_err(|_| UdevEventError::InvalidVendor)?;
         let product_id = device
             .attribute_value("idProduct")
-            .ok_or(())?
+            .ok_or(UdevEventError::MissingProduct)?
             .to_str()
-            .ok_or(())?;
+            .ok_or(UdevEventError::InvalidProduct)?;
         let product_id = <[u8; 2]>::from_hex(product_id)
             .map(u16::from_be_bytes)
-            .map_err(|_| ())?;
+            .map_err(|_| UdevEventError::InvalidProduct)?;
         for (name, profile) in mice {
             if profile.vendor == vendor_id && profile.product == product_id {
                 info!("Device {name} has been connected");
@@ -104,13 +113,15 @@ fn process_udev_event<'a>(
     }
 }
 #[derive(Debug, thiserror::Error)]
-enum OpenFirstMouseError {
-    #[error("No mouse found")]
-    NotFound,
-    #[error("Error opening the found mouse: {0}")]
-    OpenMouse(#[from] hidapi::HidError),
-    #[error("Error wrapping the mouse device: {0}")]
-    WrapMouse(#[from] crate::mouse::GetMouseError),
+enum UdevEventError {
+    #[error("Event missing vendor id")]
+    MissingVendor,
+    #[error("Vendor id not in proper format")]
+    InvalidVendor,
+    #[error("Event missing product id")]
+    MissingProduct,
+    #[error("Product id not in proper format")]
+    InvalidProduct,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -126,8 +137,6 @@ async fn main() -> Result<(), Error> {
     // Load the mouse config file
     let mouse_config = fs::read(args.config).map_err(Error::OpenConfig)?;
     let mouse_config: LinkedHashMap<String, MouseProfile> = toml::from_slice(&mouse_config)?;
-    // Initialize hidapi
-    let hid_api = HidApi::new().map_err(Error::InitializeHidApi)?;
     // Create a single sleep future
     // Initially we sleep for 0 (immediately get status)
     let sleep = time::sleep(Duration::from_secs(0));
@@ -135,6 +144,8 @@ async fn main() -> Result<(), Error> {
     tokio::pin!(sleep);
     // Main loop
     loop {
+        // Initialize hidapi
+        let hid_api = HidApi::new().map_err(Error::InitializeHidApi)?;
         // Look through the list of mice and try to find one
         match open_first_mouse(&hid_api, mouse_config.iter()) {
             Ok(mouse) => {
@@ -144,7 +155,13 @@ async fn main() -> Result<(), Error> {
                         () = &mut sleep => {
                             // Get the battery status of the mouse
                             match mouse.battery() {
-                                Ok(Some(battery_status)) => info!("Battery: {battery_status:?}"),
+                                Ok(Some(battery_status)) => {
+                                    println!(
+                                        "\u{f8cc}{} {}%",
+                                        if battery_status.is_charging { "\u{f0e7}" } else {""},
+                                        battery_status.percent
+                                    )
+                                }
                                 Ok(None) => warn!("Error in response, will try again"),
                                 Err(err) => {
                                     error!("Error reading battery status: {err}");
@@ -161,6 +178,8 @@ async fn main() -> Result<(), Error> {
                 error!("Error opening first mouse: {err}");
             }
         }
+        // Print an empty line because we don't know the status of the mouse
+        println!();
         // Do a udev wait loop until one of our desired mice show up
         info!("Using udev to wait until our mouse appears");
         let mut monitor: AsyncMonitorSocket = MonitorBuilder::new()
@@ -171,8 +190,13 @@ async fn main() -> Result<(), Error> {
             .map_err(Error::UdevListen)?
             .try_into()
             .map_err(Error::UdevAsync)?;
+        // Set up the sleep timer to have a timeout before we stop checking udev
+        sleep.as_mut().reset(Instant::now() + interval);
         // Process udev usb events
-        while let Some(event) = monitor.next().await {
+        while let Some(event) = tokio::select! {
+            event = monitor.next() => { event },
+            _ = &mut sleep => { None },
+        } {
             match event {
                 Ok(event) => match process_udev_event(&event, mouse_config.iter()) {
                     Ok(true) => break,
