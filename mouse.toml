@@ -1,0 +1,11 @@
+[wired]
+model = "steelseries_aerox_9_wired"
+vendor="1038"
+product="185a"
+endpoint = 3
+
+[wireless]
+model = "steelseries_aerox_9_wireless"
+vendor="1038"
+product="1858"
+endpoint = 3

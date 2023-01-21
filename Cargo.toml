@@ -1,0 +1,23 @@
+[package]
+name = "nezumi"
+version = "0.1.0"
+edition = "2021"
+authors = [ "Jade <jade@witchof.space>" ]
+description = "Utility to track the battery level of my mouse"
+license = "GPL-3.0-only"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+clap = { version = "4.1.1", features = ["derive"] }
+futures-util = "0.3.25"
+hex = { version = "0.4.3", features = ["serde"] }
+hidapi = { version = "2.1.1", default-features = false, features = ["linux-static-hidraw"] }
+linked-hash-map = { version = "0.5.6", features = ["serde", "serde_impl"] }
+serde = { version = "1.0.152", features = ["derive"] }
+thiserror = "1.0.38"
+tokio = { version = "1.24.2", default-features = false, features = ["rt", "macros", "time"] }
+tokio-udev = "0.8.0"
+toml = { version = "0.5.11", features = ["preserve_order"] }
+tracing = { version = "0.1.37", features = ["log"] }
+tracing-subscriber = "0.3.16"
