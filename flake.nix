@@ -33,6 +33,9 @@
           inherit nativeBuildInputs buildInputs;
           src = ./.;
         };
+        overlays.default = final: prev: {
+          nazrin = self.defaultPackage."${system}";
+        };
 
         devShell = pkgs.mkShell {
           inherit buildInputs;
