@@ -34,7 +34,7 @@
           src = ./.;
         };
         overlays.default = final: prev: {
-          nazrin = self.defaultPackage."${system}";
+          nezumi = self.defaultPackage."${system}";
         };
 
         devShell = pkgs.mkShell {
