@@ -132,6 +132,7 @@ async fn main() -> Result<(), Error> {
     // a builder for `FmtSubscriber`.
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::TRACE)
+        .with_writer(io::stderr)
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
     // Load the mouse config file
